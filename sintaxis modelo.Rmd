@@ -1,0 +1,849 @@
+---
+title: "Modelo Inferencial Encuesta Desarrollo Económico San Antonio"
+author: "Pamela Inostroza - Datic SpA"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, comment = NA)
+
+require(haven)
+require(ggplot2)
+library(sjlabelled)
+library(dplyr)
+library(stringr)
+library(corrplot)
+library(lmtest) #dwtest
+library(fBasics) #JarqueBeraTest
+library(psych)
+
+options(scipen = 999)
+
+dir <- "C:/Users/pamel/Documents/Synthesis/"
+
+#estudio <- read_sav(paste0(dir,"EncuestaRecodificadas27_06.sav"), encoding = "UTF-8")
+load(paste0(dir,"EncuestaRecodificadas10_08.RData"))
+dat <- estudio 
+```
+
+
+# Lista de variables disponibles para modelamiento  
+
+A continuación se identifican las variables con sus respectivas opciones de respuesta con las cuales se cuenta para generar un modelo estadístico inferencial.  
+
+```{r recod, echo=FALSE}
+# dat$E_pesca <- ifelse(dat$q0006_r == 2, 1,0)
+# dat$E_manufac <- ifelse(dat$q0006_r == 4, 1,0)
+# dat$E_manufacmetal <- ifelse(dat$q0006_r == 5, 1,0)
+# dat$E_comercio <- ifelse(dat$q0006_r == 8, 1,0)
+# dat$E_turismo <- ifelse(dat$q0006_r == 9, 1,0)
+# dat$E_transporte <- ifelse(dat$q0006_r == 10, 1,0)
+# dat$E_educac <- ifelse(dat$q0006_r == 14, 1,0)
+# dat$E_socialsalud <- ifelse(dat$q0006_r == 15, 1,0)
+# dat$E_servicios <- ifelse(dat$q0006_r == 16, 1,0)
+
+dat$ClasifTamE <- car::recode(dat$ClasifTamE, "c('PequeÃ±a Empresa') = 'Pequeña Empresa'")
+
+dat$q0006 <- factor(dat$q0006, levels = get_values(dat$q0006) ,labels = get_labels(dat$q0006))
+
+dat$produce <- factor(dat$produce, levels = c(0,1) ,labels = c("No","Si"))
+dat$ventas <- dat$q0033
+dat$trabajadores <- factor(dat$q0026, levels = get_values(dat$q0026) ,labels = get_labels(dat$q0026))
+dat$anoscomoempresario <- factor(dat$q0023, levels = get_values(dat$q0023) ,labels = get_labels(dat$q0023))
+dat$anoscomoempresario <- car::recode(dat$anoscomoempresario, "c('Menos de 1 año','Más de 1 año y menos de 2 años','Más de 2 años y menos de 5 años') = 'Menos de 5 años'")
+
+dat$efamiliar <-  factor(dat$q0010, levels = get_values(dat$q0010) ,labels = get_labels(dat$q0010))
+dat$Numfamiliares <-  factor(dat$q0011, levels = get_values(dat$q0011) ,labels = get_labels(dat$q0011))
+
+dat$tiempoenlugar <-  factor(dat$q0012, levels = get_values(dat$q0012) ,labels = get_labels(dat$q0012))
+dat$tiempoenlugar <- car::recode(dat$tiempoenlugar , "c('Menos de 1 año','Más de 1 año y menos de 2 años','Más de 2 años y menos de 5 años') = 'Menos de 5 años'")
+
+dat$local <- factor(dat$q0014, levels = get_values(dat$q0014) ,labels = get_labels(dat$q0014))
+dat$local[which(dat$local == "Otro (especifique)")] <- NA
+dat$local <- car::recode(dat$local, "c('Es Propiedad de la sociedad o el dueño','Es Sucesión sin posesión efectiva','Es Sucesión con posesión efectiva (varios dueños)') = 'Propia';
+                               c('Es Arrendada','Es Comodato','Es Cedida','Es Cowork') = 'En arriendo'")
+
+dat$sexo <- factor(dat$q0015, levels = get_values(dat$q0015) ,labels = get_labels(dat$q0015))
+dat$edad <- factor(dat$q0016, levels = get_values(dat$q0016) ,labels = get_labels(dat$q0016))
+dat$edad <- car::recode(dat$edad, "c('Entre 18 y 25 años') = 'Menos de 26 años'; 
+c('Entre 26 y 35 años','Entre 36 y 45 años') = 'Entre 26 y 45 años';
+c('Entre 46 y 55 años','Entre 56 y 65 años','Más de 65 años') = 'Más de 46 años'")
+
+dat$niveleducac <- factor(dat$q0017, levels = get_values(dat$q0017) ,labels = get_labels(dat$q0017))
+dat$niveleducac <- car::recode(dat$niveleducac, "c('Educación Básica','Educación Media Científico Humanista') = 'Sin especialización';
+                               c('Educación Media Técnico Profesional','Educación Técnica de nivel superior (Instituto Profesional o Centro de Formación técnica)') = 'Técnico Profesional';
+                               c('Educación Superior (Universidad)','Postgrado (Magister, Doctorado)') = 'Profesional'")
+
+dat$sehacapacita <- factor(dat$q0018, levels = get_values(dat$q0018) ,labels = get_labels(dat$q0018))
+
+dat$TipoEmpresa <- ifelse(dat$q0007_other %in% c("Sociedad limitada","Sociedad compañía LTDA","Compañía LTDa"),3,dat$q0007)
+v1 <- get_values(dat$q0007)
+l1 <- get_labels(dat$q0007)
+dat$TipoEmpresa <- factor(dat$TipoEmpresa, levels = v1[c(1:4,7,5,6,8)] ,labels = l1[c(1:4,7,5,6,8)])
+dat$TipoEmpresa[which(dat$TipoEmpresa == "Otro (especifique)")] <- NA
+dat$TipoEmpresa[which(dat$TipoEmpresa == "Cooperativa")] <- NA
+
+#dat$TipoEmpresa <- car::recode(dat$TipoEmpresa, "c('Persona Natural') = 'Persona Natural';
+#                                 c('Empresa Individual de Responsabilidad Limitada EIRL','Cooperativa','Sociedad por Acciones (SpA)','Sociedad de Responsabilidad Limitada') = 'Regimen Común';
+#                                 c('Sociedad Anónima Cerrada', 'Sociedad Anónima Abierta') = 'Grandes contribuyentes'")
+
+dat$masnegocios <- factor(dat$q0024, levels = get_values(dat$q0024) ,labels = get_labels(dat$q0024))
+
+dat$jornacompleta <- car::recode(dat$q0027_0001, "c('La mitad (50%)', 'La mayoría (75%)','Todos (100%)') = 'Más de la mitad';
+                                 c('Algunos (25%)') = 'Algunos';
+                                 c('Ninguno (0%)') = 'Ninguno'")
+dat$jornacompleta[which(dat$jornacompleta == "Perdido")] <- NA
+dat$mediajornada <- car::recode(dat$q0027_0002, "c('La mitad (50%)', 'La mayoría (75%)','Todos (100%)') = 'Más de la mitad';
+                                 c('Algunos (25%)') = 'Algunos';
+                                 c('Ninguno (0%)') = 'Ninguno'")
+dat$mediajornada[which(dat$mediajornada == "Perdido")] <- NA
+dat$porhora <- car::recode(dat$q0027_0003, "c('La mitad (50%)', 'La mayoría (75%)','Todos (100%)') = 'Más de la mitad';
+                                 c('Algunos (25%)') = 'Algunos';
+                                 c('Ninguno (0%)') = 'Ninguno'")
+dat$porhora[which(dat$porhora == "Perdido")] <- NA
+dat$otrajorn <- car::recode(dat$q0027_0004, "c('La mitad (50%)', 'La mayoría (75%)','Todos (100%)') = 'Más de la mitad';
+                                 c('Algunos (25%)') = 'Algunos';
+                                 c('Ninguno (0%)') = 'Ninguno'")
+dat$otrajorn[which(dat$otrajorn == "Perdido")] <- NA
+
+dat$ch <- car::recode(dat$q0028_0005, "c('La mitad (50%)', 'La mayoría (75%)','Todos (100%)') = 'Más de la mitad';
+                                 c('Algunos (25%)') = 'Algunos';
+                                 c('Ninguno (0%)') = 'Ninguno'")
+dat$ch[which(dat$ch == "Perdido")] <- NA
+dat$tp <- car::recode(dat$q0028_0004, "c('La mitad (50%)', 'La mayoría (75%)','Todos (100%)') = 'Más de la mitad';
+                                 c('Algunos (25%)') = 'Algunos';
+                                 c('Ninguno (0%)') = 'Ninguno'")
+dat$tp[which(dat$tp == "Perdido")] <- NA
+dat$ipcft <- car::recode(dat$q0028_0003, "c('La mitad (50%)', 'La mayoría (75%)','Todos (100%)') = 'Más de la mitad';
+                                 c('Algunos (25%)') = 'Algunos';
+                                 c('Ninguno (0%)') = 'Ninguno'")
+dat$ipcft[which(dat$ipcft == "Perdido")] <- NA
+dat$u <- car::recode(dat$q0028_0002, "c('La mitad (50%)', 'La mayoría (75%)','Todos (100%)') = 'Más de la mitad';
+                                 c('Algunos (25%)') = 'Algunos';
+                                 c('Ninguno (0%)') = 'Ninguno'")
+dat$u[which(dat$u == "Perdido")] <- NA
+dat$pos <- car::recode(dat$q0028_0001, "c('La mitad (50%)', 'La mayoría (75%)','Todos (100%)') = 'Más de la mitad';
+                                 c('Algunos (25%)') = 'Algunos';
+                                 c('Ninguno (0%)') = 'Ninguno'")
+dat$pos[which(dat$pos == "Perdido")] <- NA
+
+dat$vecinos <- factor(dat$q0029_0001, levels = get_values(dat$q0029_0001) ,labels = get_labels(dat$q0029_0001))
+dat$vecinos <- car::recode(dat$vecinos, "c('Algunos (25%)', 'Ninguno (0%)') = 'Menos de la mitad';
+c('La mitad (50%)','La mayoría (75%)','Todos (100%)') = 'Más de la mitad'")
+
+dat$alguninmig <- factor(dat$q0029_0002, levels = get_values(dat$q0029_0002) ,labels = get_labels(dat$q0029_0002))
+dat$alguninmig <- car::recode(dat$alguninmig, "c('Algunos (25%)','La mitad (50%)','La mayoría (75%)','Todos (100%)') = 'Al menos uno'")
+
+dat$algundiscapac <- factor(dat$q0029_0003, levels = get_values(dat$q0029_0003) ,labels = get_labels(dat$q0029_0003))
+dat$algundiscapac <- car::recode(dat$algundiscapac, "c('Algunos (25%)','La mitad (50%)','La mayoría (75%)','Todos (100%)') = 'Al menos uno'")
+
+dat$exporta <- factor(dat$q0034, levels = get_values(dat$q0034) ,labels = get_labels(dat$q0034))
+dat$exporta[which(dat$exporta == "No aplica")] <- "No"
+
+v1 <- get_values(dat$q0038)
+l1 <- get_labels(dat$q0038)
+dat <- dat %>% group_by(ClasifTamE) %>%
+mutate(q0038 = ifelse(q0038 == 6, round(mean(q0038,na.rm = TRUE),0),q0038))
+dat$rentabilidad <- factor(dat$q0038, levels = v1 ,labels = l1)
+dat$rentabilidad <- car::recode(dat$rentabilidad, "c('Entre 1% y 5%', 'Entre 6% y 10%') = 'Menos de 11%';
+c('Entre 11% y 15%') = 'Entre 11% y 15%';
+c('Entre 16% y 20%','Más de 20%') = 'Más 15%'")
+
+
+dat$ventapublico <- factor(ifelse(is.na(dat$q0039_0001), 0 ,1), levels = c(0,1), labels = c("No","Si"))
+dat$ventacomerc <- factor(ifelse(is.na(dat$q0039_0002), 0 ,1), levels = c(0,1), labels = c("No","Si"))
+
+dat$ventasalaventa <- factor(ifelse(is.na(dat$q0040_0001), 0 ,1), levels = c(0,1), labels = c("No","Si"))
+dat$ventalocal <- factor(ifelse(is.na(dat$q0040_0002), 0 ,1), levels = c(0,1), labels = c("No","Si"))
+dat$ventaweb <- factor(ifelse(is.na(dat$q0040_0003), 0 ,1), levels = c(0,1), labels = c("No","Si"))
+dat$ventatelef <- factor(ifelse(is.na(dat$q0040_0004), 0 ,1), levels = c(0,1), labels = c("No","Si"))
+dat$ventarrss <- factor(ifelse(is.na(dat$q0040_0005), 0 ,1), levels = c(0,1), labels = c("No","Si"))
+
+dat$TienePC <- factor(ifelse(dat$q0041 == 2, 0, dat$q0041), levels = c(0,1) ,labels = c("No","Si"))
+dat$frecPC <- dat$q0042
+dat$Usaplanillas <- factor(ifelse(dat$q0043 == 2, 0, dat$q0042),  levels = c(0,1) ,labels = c("No","Si"))
+dat$TieneInternet <- factor(ifelse(dat$q0044 == 2, 0, dat$q0044), levels = c(0,1) ,labels = c("No","Si"))
+
+dat$ContactoClientes <- factor(ifelse(is.na(dat$q0046_0002), 0 ,1), levels = c(0,1), labels = c("No","Si"))
+dat$OfertaActualizada <- factor(ifelse(is.na(dat$q0046_0003), 0 ,1), levels = c(0,1), labels = c("No","Si"))
+dat$MejorarCalidad <- factor(ifelse(is.na(dat$q0046_0004), 0 ,1), levels = c(0,1), labels = c("No","Si"))
+dat$InformoOfertas <- factor(ifelse(is.na(dat$q0046_0005), 0 ,1), levels = c(0,1), labels = c("No","Si"))
+dat$Pagoefectivo <- factor(ifelse(is.na(dat$q0047_0001), 0 ,1), levels = c(0,1), labels = c("No","Si"))
+dat$PagoTarjCred <- factor(ifelse(is.na(dat$q0047_0002), 0 ,1), levels = c(0,1), labels = c("No","Si"))
+dat$PagoCheque <- factor(ifelse(is.na(dat$q0047_0003), 0 ,1), levels = c(0,1), labels = c("No","Si"))
+dat$PagoDebito <- factor(ifelse(is.na(dat$q0047_0004), 0 ,1), levels = c(0,1), labels = c("No","Si"))
+dat$PagoTransf <- factor(ifelse(is.na(dat$q0047_0005), 0 ,1), levels = c(0,1), labels = c("No","Si"))
+
+dat$TienePublicidad <- factor(dat$q0048, levels = get_values(dat$q0048) ,labels = get_labels(dat$q0048))
+
+dat$Proveedor <- factor(dat$q0051, levels = get_values(dat$q0051) ,labels = get_labels(dat$q0051))
+dat$Proveedor <- car::recode(dat$Proveedor, "c('En la comuna', 'En la región') = 'En la región o comuna';
+                             c('Fuera de la región') = 'Fuera de la región'")
+
+dat$ResolSanitaria <- factor(dat$q0056_0001, levels = get_values(dat$q0056_0001) ,labels = get_labels(dat$q0056_0001))
+dat$ResolSanitaria <- car::recode(dat$ResolSanitaria, "c('Si', 'No Aplica') = 'Si tiene o no necesita';
+                             c('No') = 'No tiene'")
+dat$ProgComputacionales <- factor(dat$q0056_0002, levels = get_values(dat$q0056_0002) ,labels = get_labels(dat$q0056_0002)) 
+dat$ProgComputacionales <- car::recode(dat$ProgComputacionales, "c('Si', 'No Aplica') = 'Si tiene o no necesita';
+                             c('No') = 'No tiene'")
+dat$ProcedimAlmacenaje <- factor(dat$q0056_0003, levels = get_values(dat$q0056_0003) ,labels = get_labels(dat$q0056_0003)) 
+dat$ProcedimAlmacenaje <- car::recode(dat$ProcedimAlmacenaje, "c('Si', 'No Aplica') = 'Si tiene o no necesita';
+                             c('No') = 'No tiene'")
+dat$PlanMantenim <- factor(dat$q0056_0004, levels = get_values(dat$q0056_0004) ,labels = get_labels(dat$q0056_0004)) 
+dat$PlanMantenim <- car::recode(dat$PlanMantenim, "c('Si', 'No Aplica') = 'Si tiene o no necesita';
+                             c('No') = 'No tiene'")
+dat$ControlIncendio <- factor(dat$q0056_0006, levels = get_values(dat$q0056_0006) ,labels = get_labels(dat$q0056_0006)) 
+dat$ControlIncendio <- car::recode(dat$ControlIncendio, "c('Si', 'No Aplica') = 'Si tiene o no necesita';
+                             c('No') = 'No tiene'")
+dat$ProcEmergenc <- factor(dat$q0056_0007, levels = get_values(dat$q0056_0007) ,labels = get_labels(dat$q0056_0007))
+dat$ProcEmergenc <- car::recode(dat$ProcEmergenc, "c('Si', 'No Aplica') = 'Si tiene o no necesita';
+                             c('No') = 'No tiene'")
+
+dat$niveldeuda <- factor(dat$q0057, levels = get_values(dat$q0057) ,labels = get_labels(dat$q0057))
+dat$niveldeuda <- car::recode(dat$niveldeuda, "c('Excesiva, nivel de deuda que no le es posible pagar.','Alta, nivel de deuda que con gran esfuerzo logra pagar, no puede adquirir nuevas deudas') = 'Alta';
+                              c('Mínima, nivel de deuda imperceptible','Baja, nivel de deuda que le permite considerar adquirir nuevas y grandes deudas') = 'Baja'; 
+                              'Media, nivel de deuda que puede pagar tranquilamente y considerar adquirir nuevas deudas no muy grandes' = 'Media'")
+
+dat$evaluacnegocio <- factor(dat$q0058, levels = get_values(dat$q0058) ,labels = get_labels(dat$q0058))
+dat$asocgremial <- factor(dat$q0066, levels = get_values(dat$q0066) ,labels = get_labels(dat$q0066))
+
+dat$tiene_agua <- factor(dat$q0071_0001, levels = get_values(dat$q0071_0001) ,labels = get_labels(dat$q0071_0001))
+dat$tiene_agua <- car::recode(dat$tiene_agua, "c('SI, pero de mala calidad', 'NO, no tiene') = 'No tiene o mala calidad';
+c('SI, de buena calidad') = 'Si tiene'")
+dat$tiene_alcant <- factor(dat$q0071_0002, levels = get_values(dat$q0071_0002) ,labels = get_labels(dat$q0071_0002))
+dat$tiene_alcant <- car::recode(dat$tiene_alcant, "c('SI, pero de mala calidad', 'NO, no tiene') = 'No tiene o mala calidad';
+c('SI, de buena calidad') = 'Si tiene'")
+dat$tiene_electric <- factor(dat$q0071_0003, levels = get_values(dat$q0071_0003) ,labels = get_labels(dat$q0071_0003))
+dat$tiene_electric <- car::recode(dat$tiene_electric, "c('SI, pero de mala calidad', 'NO, no tiene') = 'No tiene o mala calidad';
+c('SI, de buena calidad') = 'Si tiene'")
+dat$tiene_internet <- factor(dat$q0071_0004, levels = get_values(dat$q0071_0004) ,labels = get_labels(dat$q0071_0004))
+dat$tiene_internet <- car::recode(dat$tiene_internet, "c('SI, pero de mala calidad', 'NO, no tiene') = 'No tiene o mala calidad';
+c('SI, de buena calidad') = 'Si tiene'")
+
+dat$pocaseguridad <- factor(ifelse(dat$q0072_0001 == "Factor #1", 1, ifelse(!is.na(dat$q0072_0001) ,2,NA)), levels = 1:2, labels = c("Si","No"))
+dat$pocascalles <- factor(ifelse(dat$q0072_0002 == "Factor #1", 1, ifelse(!is.na(dat$q0072_0002), 2,NA)), levels = 1:2, labels = c("Si","No"))
+dat$altotrafico <- factor(ifelse(dat$q0072_0003 == "Factor #1", 1, ifelse(!is.na(dat$q0072_0003), 2,NA)), levels = 1:2, labels = c("Si","No"))
+dat$pocosestacionam <- factor(ifelse(dat$q0072_0004 == "Factor #1", 1, ifelse(!is.na(dat$q0072_0004), 2,NA)), levels = 1:2, labels = c("Si","No"))
+dat$pocotransporte <- factor(ifelse(dat$q0072_0005 == "Factor #1", 1, ifelse(!is.na(dat$q0072_0005), 2,NA)), levels = 1:2, labels = c("Si","No"))
+dat$muchabasura <- factor(ifelse(dat$q0072_0006 == "Factor #1", 1, ifelse(!is.na(dat$q0072_0006), 2,NA)), levels = 1:2, labels = c("Si","No"))
+
+dat$tieneayudamunic <- factor(dat$q0073, levels = get_values(dat$q0073) ,labels = get_labels(dat$q0073))
+
+cols.num <- c("q0075_0002","q0075_0003","q0075_0004","q0075_0005","q0075_0006","q0075_0007")
+dat[cols.num] <- sapply(dat[cols.num],as.numeric)
+dat$q0075_0001 <- ifelse(as.numeric(dat$q0075_0001) == 1,1,0)
+dat$q0075_0002 <- ifelse(as.numeric(dat$q0075_0002) == 1,1,0)
+dat$q0075_0003 <- ifelse(as.numeric(dat$q0075_0003) == 1,1,0)
+dat$q0075_0004 <- ifelse(as.numeric(dat$q0075_0004) == 1,1,0)
+dat$q0075_0005 <- ifelse(as.numeric(dat$q0075_0005) == 1,1,0)
+dat$q0075_0006 <- ifelse(as.numeric(dat$q0075_0006) == 1,1,0)
+dat$q0075_0007 <- ifelse(as.numeric(dat$q0075_0007) == 1,1,0)
+
+
+dat$finn <- rowSums(dat[,c("q0075_0002", "q0075_0003", "q0075_0004", "q0075_0005", "q0075_0006", "q0075_0007")], na.rm = TRUE)
+
+dat$financiamiento <- ifelse(dat$finn == 0, 1, ifelse(dat$finn == 1, 2, ifelse(dat$finn > 1, 3, NA)))
+dat$financiamiento <- factor(dat$financiamiento, levels = 1:3, labels = c("No tiene", "Tiene uno", "Tiene varios"))
+dat$financiamiento <- car::recode(dat$financiamiento, "c('Tiene uno', 'Tiene varios') = 'Tiene';
+                             c('No tiene') = 'No tiene'")
+
+
+# dat %>% filter(q0006_r == 2) %>% dplyr::select(q0031_0001, q0032_0001, q0031_0002, q0032_0002, q0031_0003, q0032_0003, q0006)
+# dat %>% filter(q0006_r == 4) %>% dplyr::select(q0031_0001, q0032_0001, q0031_0002, q0032_0002, q0031_0003, q0032_0003, q0006)
+# dat %>% filter(q0006_r == 5) %>% dplyr::select(q0031_0001, q0032_0001, q0031_0002, q0032_0002, q0031_0003, q0032_0003, q0006)
+# dat %>% filter(q0006_r == 6) %>% dplyr::select(q0031_0001, q0032_0001, q0031_0002, q0032_0002, q0031_0003, q0032_0003, q0006)
+# dat %>% filter(q0006_r == 7) %>% dplyr::select(q0031_0001, q0032_0001, q0031_0002, q0032_0002, q0031_0003, q0032_0003, q0006)
+# dat %>% filter(q0006_r == 8) %>% dplyr::select(q0031_0001, q0032_0001, q0031_0002, q0032_0002, q0031_0003, q0032_0003, q0006)
+# dat %>% filter(q0006_r == 9) %>% dplyr::select(q0031_0001, q0032_0001, q0031_0002, q0032_0002, q0031_0003, q0032_0003, q0006)
+# dat %>% filter(q0006_r == 10) %>% dplyr::select(q0031_0001, q0032_0001, q0031_0002, q0032_0002, q0031_0003, q0032_0003, q0006)
+# dat %>% filter(q0006_r == 11) %>% dplyr::select(q0031_0001, q0032_0001, q0031_0002, q0032_0002, q0031_0003, q0032_0003, q0006)
+# dat %>% filter(q0006_r == 12) %>% dplyr::select(q0031_0001, q0032_0001, q0031_0002, q0032_0002, q0031_0003, q0032_0003, q0006)
+# dat %>% filter(q0006_r == 14) %>% dplyr::select(q0031_0001, q0032_0001, q0031_0002, q0032_0002, q0031_0003, q0032_0003, q0006)
+# dat %>% filter(q0006_r == 15) %>% dplyr::select(q0031_0001, q0032_0001, q0031_0002, q0032_0002, q0031_0003, q0032_0003, q0006)
+# dat %>% filter(q0006_r == 16) %>% dplyr::select(q0031_0001, q0032_0001, q0031_0002, q0032_0002, q0031_0003, q0032_0003, q0006)
+
+#clasificacion de variables por area
+var_ventas <- c("produce", "ventas", "trabajadores", "exporta", "rentabilidad", "ventapublico", "ventacomerc", "ventasalaventa", "ventalocal", "ventaweb", "ventatelef", "ventarrss", "Pagoefectivo", "PagoTarjCred", "PagoCheque", "PagoDebito", "PagoTransf", "Proveedor")
+                 
+var_capacEduc <- c("niveleducac", "sehacapacita")
+
+var_caractPersona <- c("anoscomoempresario", "efamiliar", "tiempoenlugar", "sexo", "edad")
+
+var_caracEmpresa <- c( "q0006_r", "ClasifTamE", "TipoEmpresa", "masnegocios", "TienePC", "TieneInternet", "ContactoClientes", "OfertaActualizada", "MejorarCalidad", "InformoOfertas", "ProgComputacionales", "TienePublicidad", "niveldeuda", "evaluacnegocio", "asocgremial", "tieneayudamunic","financiamiento") # "E_pesca", "E_manufac", "E_manufacmetal", "E_comercio", "E_turismo", "E_transporte", "E_educac", "E_socialsalud", "E_servicios","q0006", "frecPC", "Usaplanillas", , "financiamiento"
+                  
+var_empleo <- c("jornacompleta", "mediajornada", "porhora", "otrajorn", "ch",  "ipcft", "u", "pos", "vecinos", "alguninmig", "algundiscapac") #"Numfamiliares",
+
+var_infraes <- c("local", "ResolSanitaria", "ProcedimAlmacenaje", "PlanMantenim", "ControlIncendio", "ProcEmergenc", "tiene_agua", "tiene_alcant", "tiene_electric", "tiene_internet", "pocaseguridad", "pocascalles","altotrafico","pocotransporte","pocosestacionam") #,"muchabasura"
+
+form <- dat[dat$q0002 == 1, colnames(dat) %in% c(var_ventas, var_capacEduc, var_caractPersona, var_caracEmpresa, var_empleo, var_infraes)]
+#form <- form %>% dplyr::select(-frecPC, -Usaplanillas, -Numfamiliares, -malalcant) #eliminar preguntas dependientes de filtro
+
+str(form)
+lapply(form, table, useNA = "ifany")
+```
+
+# Correlación entre las variables 
+
+Se muestra la matriz de correlación, además del mapa de calor donde donde se observan las variables agrupadas segun su correlación, las que se agrupan en torno al color azul tienen alta correlacion positiva, mientras que si se agrupan en torno al color rojo esta asociación es negativa, esto quiere decir, que a medida que una aumenta la otra disminuye.  
+
+```{r cor, include=TRUE, fig.height=10, fig.width=10 }
+
+cc <- round(cor(sapply(form,as.numeric), use = "pairwise.complete.obs", method = "spearman"),2)
+upper <- cc
+upper[upper.tri(upper, diag = TRUE)] <- ""
+upper <- as.data.frame(upper)
+upper
+
+cor.mtest <- function(mat, ...) {
+    mat <- as.matrix(mat)
+    n <- ncol(mat)
+    p.mat <- matrix(NA, n, n)
+    diag(p.mat) <- 0
+    for (i in 1:(n - 1)) {
+        for (j in (i + 1):n) {
+            tmp <- cor.test(mat[, i], mat[, j], ...)
+            p.mat[i, j] <- p.mat[j, i] <- tmp$p.value
+        }
+    }
+  colnames(p.mat) <- rownames(p.mat) <- colnames(mat)
+  p.mat
+}
+# matrix of the p-value of the correlation
+p.mat <- cor.mtest(sapply(form,as.numeric))
+mycol <- ifelse(c(p.mat < 0.01), "black", "white")
+
+corrplot(cc, method = "color", type = "upper", tl.cex = 0.6, order = "hclust", #FPC
+         p.mat = p.mat, sig.level = 0.01, insig = "blank", diag = FALSE)
+
+corrplot(cc[rownames(cc) %in% c(var_ventas),colnames(cc) %in% c(var_ventas)], method = "color", type = "upper", 
+         tl.cex = 0.6, p.mat = p.mat[rownames(cc) %in% c(var_ventas),colnames(cc) %in% c(var_ventas)], 
+         sig.level = 0.01, addCoef.col = mycol[colnames(cc) %in% c(var_ventas)] ,number.cex = 0.6, insig = "blank", 
+         diag = FALSE, title = "Variables ventas")
+corrplot(cc[rownames(cc) %in% c(var_caracEmpresa),colnames(cc) %in% c(var_caracEmpresa)], method = "color", type = "upper", 
+         tl.cex = 0.6, p.mat = p.mat[rownames(cc) %in% c(var_caracEmpresa),colnames(cc) %in% c(var_caracEmpresa)], 
+         sig.level = 0.01, addCoef.col = mycol[colnames(cc) %in% c(var_caracEmpresa)] ,number.cex = 0.6, insig = "blank", 
+         diag = FALSE, title = "Variables caracterizacion Empresa")
+corrplot(cc[rownames(cc) %in% c(var_empleo),colnames(cc) %in% c(var_empleo)], method = "color", type = "upper", 
+         tl.cex = 0.6, p.mat = p.mat[rownames(cc) %in% c(var_empleo),colnames(cc) %in% c(var_empleo)], 
+         sig.level = 0.01, addCoef.col = mycol[colnames(cc) %in% c(var_empleo)] ,number.cex = 0.6, insig = "blank", 
+         diag = FALSE, title = "Variables Empleo")
+corrplot(cc[rownames(cc) %in% c(var_infraes),colnames(cc) %in% c(var_infraes)], method = "color", type = "upper", 
+         tl.cex = 0.6, p.mat = p.mat[rownames(cc) %in% c(var_infraes),colnames(cc) %in% c(var_infraes)], 
+         sig.level = 0.01, addCoef.col = mycol[colnames(cc) %in% c(var_infraes)] ,number.cex = 0.6, insig = "blank", 
+         diag = FALSE, title = "Variables Infraestructura")
+corrplot(cc[rownames(cc) %in% c(var_capacEduc),colnames(cc) %in% c(var_capacEduc)], method = "color", type = "upper", 
+         tl.cex = 0.6, p.mat = p.mat[rownames(cc) %in% c(var_capacEduc),colnames(cc) %in% c(var_capacEduc)], 
+         sig.level = 0.01, addCoef.col = mycol[colnames(cc) %in% c(var_capacEduc)] ,number.cex = 0.6, insig = "blank", 
+         diag = FALSE, title = "Variables Educación/Capacitación")
+corrplot(cc[rownames(cc) %in% c(var_caractPersona),colnames(cc) %in% c(var_caractPersona)], method = "color", type = "upper", 
+         tl.cex = 0.6, p.mat = p.mat[rownames(cc) %in% c(var_caractPersona),colnames(cc) %in% c(var_caractPersona)], 
+         sig.level = 0.01, addCoef.col = mycol[colnames(cc) %in% c(var_caractPersona)] ,number.cex = 0.6, insig = "blank", 
+         diag = FALSE, title = "Variables caracterización Personal")
+```
+
+# Factorial exploratorio  
+
+Para generar un indicador que se aproxime a indicar el nivel de desarrollo económico de la comuna, se estudian las variables que tienen mayor asociación entre si, para esto se utiliza la metodología de análisis factorial exploratorio, donde se trata de descubrir la estructura interna de un número relativamente grande de variables. La hipótesis a priori del investigador es que pueden existir una serie de factores asociados a grupos de variables. Las cargas de los distintos factores se utilizan para intuir la relación de éstos con las distintas variables observadas. Para esto se observan las cargas factoriales (loadings) que aporta cada variable a un factor común para determinar cual sería nuestro mejor proxi.
+
+
+```{r factorial, include=TRUE}
+
+f1 <- factanal(~., data = data.frame(sapply(form,as.numeric)), factors = 10) 
+print(f1$loadings, digits = 3, cutoff = 0.3, sort = TRUE)
+
+vars_sel <- c("ventas","trabajadores","TipoEmpresa")
+lapply(form[,vars_sel], table, useNA = "ifany")
+
+f <- factanal(~., data = data.frame(sapply(form[,vars_sel],as.numeric)), 
+              factors = 1 , scores = "regression")
+f$loadings
+
+ressc <- function(x){(x - min(x))/(max(x) - min(x))}
+f$scores_r <- ressc(f$score)*100
+describe(f$scores_r)
+
+fs <- data.frame(f$scores_r)
+fs$rowname   <- rownames(fs)
+
+form$rowname <- rownames(form)
+form <- left_join(form, fs, by = "rowname")
+form <- form %>% group_by(ClasifTamE) %>%
+mutate(Factor1 = ifelse(is.na(Factor1),mean(Factor1,na.rm = TRUE),Factor1))
+
+describeBy(form$Factor1,form$ClasifTamE)
+
+
+ggplot(na.omit(form[,c("Factor1")]), aes(x = Factor1)) + 
+  geom_histogram(bins = 30, color = "black", fill = "gray") +
+  labs(title = "Distribución del indicador") 
+
+print("Comportamiento de las variables utilizadas con el indicador generado")
+ggplot(na.omit(form[,c("ventas","Factor1")]), aes(x = ventas, y = Factor1)) + 
+  geom_boxplot() + theme(axis.text.x = element_text(angle = 30, hjust = 1)) +
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 20)) 
+
+ggplot(na.omit(form[,c("trabajadores","Factor1")]), aes(x = trabajadores, y = Factor1)) + 
+        geom_boxplot() + theme(axis.text.x = element_text(angle = 30, hjust = 1)) +
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 20)) 
+
+ggplot(na.omit(form[,c("TipoEmpresa","Factor1")]), aes(x = TipoEmpresa, y = Factor1)) + 
+        geom_boxplot() + theme(axis.text.x = element_text(angle = 30, hjust = 1)) +
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 20)) 
+
+form <- form %>% rename(DesarrEcon = Factor1) %>% select(-ventas, -trabajadores, -TipoEmpresa)
+
+```
+
+# Análisis de regresión lineal
+
+La aplicación de un modelo de regresión requiere establecer la variable dependiente (Y) y las variables independientes (X_1,X_2,…,X_n).
+
+Ecuación de la regresión
+Y= α+ β_1 X_1+β_2 X_2+⋯+β_n X_n+ε
+
+Los coeficientes de las variables independientes (β_1,β_2,…,β_n), indican el nivel de relación entre la variable dependiente (Y) y la variable independiente analizada (X_i), un coeficiente con signo negativo corresponde a una relación inversa, signo positivo indica una relación directa entre estas variables.
+
+Significancia estadística de cada coeficiente, permite determinar la confiabilidad de que cada coeficiente basado en la muestra son un fiel reflejo de la población.
+
+Significancia estadística para la ecuación de regresión, permite determinar si la ecuación de regresión total es representativa de la población en estudio.
+
+Primero, ejecutamos un modelo con todas las variables disponibles como variables explicativas (**Modelo completo**), y como variable dependiente utilizamos el proxi generado previamente mediante el Analisis Factorial Exploratorio. Con esto obtenemos la significancia de la asociación de cada variable con nuestra variable dependiente llamada *DesarrEcon*. Cada nivel de significancia es definido por el p-valor, el cual debe ser inferior a 0.05 para contar con una error estimado máximo de 5%.  
+
+De este modelo completo, seleccionamos las variables que consideramos relevantes para el analisis y que tienen relación significativa con la variable dependiente. Con esto, ejecutamos el **modelo seleccionado**.
+
+```{r regress}
+options(width = 10000)
+form$niveldeuda <- relevel(form$niveldeuda, ref = "Baja")
+form$evaluacnegocio <- relevel(form$evaluacnegocio, ref = "No")
+form$ProgComputacionales <- relevel(form$ProgComputacionales, ref = "Si tiene o no necesita")
+form$ProcedimAlmacenaje <- relevel(form$ProcedimAlmacenaje, ref = "Si tiene o no necesita")
+form$PlanMantenim <- relevel(form$PlanMantenim, ref = "Si tiene o no necesita")
+form$ControlIncendio <- relevel(form$ControlIncendio, ref = "Si tiene o no necesita")
+form$ProcEmergenc <- relevel(form$ProcEmergenc, ref = "Si tiene o no necesita")
+form$exporta <- relevel(form$exporta, ref = "No")
+form$alguninmig <- relevel(form$alguninmig, ref = "Ninguno (0%)")
+form$algundiscapac <- relevel(form$algundiscapac, ref = "Ninguno (0%)")
+form$vecinos <- relevel(form$vecinos, ref = "Menos de la mitad")
+form$sehacapacita <- relevel(form$sehacapacita, ref = "No")
+form$asocgremial <- relevel(form$asocgremial, ref = "No")
+form$pocosestacionam <- relevel(form$pocosestacionam, ref = "No")
+form$pocotransporte <- relevel(form$pocotransporte, ref = "No")
+form$pocaseguridad <- relevel(form$pocaseguridad, ref = "No")
+form$pocascalles <- relevel(form$pocascalles, ref = "No")
+form$altotrafico <- relevel(form$altotrafico, ref = "No")
+form$tieneayudamunic <- relevel(form$tieneayudamunic, ref = "No")
+form$TienePublicidad <- relevel(form$TienePublicidad, ref = "No")
+form$masnegocios <- relevel(form$masnegocios, ref = "No")
+form$TienePC <- relevel(form$TienePC, ref = "No")
+form$TieneInternet <- relevel(form$TieneInternet, ref = "No")
+form$efamiliar <- relevel(form$efamiliar, ref = "No")
+form$anoscomoempresario <- relevel(form$anoscomoempresario, ref = "Menos de 5 años")
+form$tiempoenlugar <- relevel(form$tiempoenlugar, ref = "Menos de 5 años")
+form$niveleducac <- relevel(form$niveleducac, ref = "Sin especialización")
+form$rentabilidad <- relevel(form$rentabilidad, ref = "Menos de 11%")
+form$Proveedor <- relevel(form$Proveedor, ref = "En la región o comuna")
+form$u <- relevel(form$u, ref = "Ninguno")
+form$ipcft <- relevel(form$ipcft, ref = "Ninguno")
+form$ch <- relevel(form$ch, ref = "Ninguno")
+form$pos  <- relevel(form$pos, ref = "Ninguno")
+form$jornacompleta  <- relevel(form$jornacompleta, ref = "Ninguno")
+form$mediajornada  <- relevel(form$mediajornada, ref = "Ninguno")
+form$ClasifTamE  <- relevel(form$ClasifTamE, ref = "Microempresa")
+form$tiene_internet <- relevel(form$tiene_internet, ref = "Si tiene")
+form$edad <- relevel(form$edad, ref = "Más de 46 años")
+form$financiamiento <- relevel(form$financiamiento, ref = "Tiene")
+
+multi.fit <- lm(DesarrEcon ~ ., data = form[,!colnames(form) %in% c("rowname","q0006_r")])
+print("Modelo completo")
+summary(multi.fit)
+anova(multi.fit)
+library(olsrr)
+#ols_step_both_p(multi.fit)
+
+print("Correlacion indicador con resto de variables")
+cc <- round(cor(sapply(form[,!colnames(form) %in% c("rowname","q0006_r")],as.numeric), use = "pairwise.complete.obs", method = "spearman"),2)
+data.frame(sort(cc["DesarrEcon",]))
+data.frame(sort(cc["pocotransporte",]))
+
+vars_mod1 <- c("DesarrEcon","ClasifTamE","TienePC","niveldeuda","u","alguninmig","exporta","ventasalaventa","PagoTarjCred","PagoTransf","tiempoenlugar","ventatelef","ProgComputacionales","ch","masnegocios","ventacomerc","TienePublicidad","ipcft","ventalocal","asocgremial","tiene_internet","Proveedor","vecinos","ControlIncendio","mediajornada","ventaweb","ventarrss","rentabilidad","ContactoClientes","sexo","edad","financiamiento","pocascalles","sehacapacita","Pagoefectivo","PagoCheque")
+
+mod1.fit <- lm(DesarrEcon ~ ., data = form[,vars_mod1])
+summary(mod1.fit)
+
+vars_final <- c("DesarrEcon","ClasifTamE","TienePC","niveldeuda","u","alguninmig","exporta","ventasalaventa","PagoTarjCred","PagoTransf","tiempoenlugar","ventatelef","ProgComputacionales","ch","masnegocios","ventacomerc","TienePublicidad","ipcft","ventalocal","asocgremial","tiene_internet","Proveedor","vecinos","ControlIncendio","mediajornada","ventaweb","rentabilidad","sexo","edad","sehacapacita")
+final.fit <- lm(DesarrEcon ~ ., 
+                data = form[,vars_final])
+
+summary(final.fit)
+
+fv <- data.frame(final.fit$fitted.values)
+fv$rowname   <- rownames(fv)
+form <- left_join(form,fv,by = "rowname")
+
+sum <- summary(final.fit)
+
+print("Ajuste Modelo seleccionado")
+ggplot(na.omit(form), aes(x = DesarrEcon, y = final.fit.fitted.values, color = ClasifTamE)) + 
+  geom_point() + theme(legend.position = "bottom",
+                       legend.title = element_blank()) +
+  stat_smooth(method = "lm", col = "red") +
+  labs(title = "Ajuste modelo general") +
+  labs(x = "Indicador desarrollo económico", y = "Puntaje estimado") +
+  annotate(geom = "text",x = 10, y = 80, label = paste("R2 ajustado = ",round(sum$adj.r.squared,2)), col = "black")
+  
+```
+
+# Ajuste del modelo, revisión de supuestos
+
+Finalmente, evaluamos el ajuste del modelo, asegurandonos de cumplir con todos los supuestos para que el modelo seleccionado se válido.
+
+```{r ajuste}
+#///////////Multiple Regression Example///////////
+#Residual Analysis for Multiple Regression
+dwtest(final.fit) #Test for independence of residuals
+#Null Hypothesis: Errors are serially UNcorrelated
+jarqueberaTest(final.fit$resid) #Test residuals for normality
+#Null Hypothesis: Skewness and Kurtosis are equal to zero
+form1 <- na.omit(form[,vars_final])
+#Multiple Regression Residual Plots
+layout(matrix(c(1,2,3,4),2,2,byrow = T))
+plot(final.fit$fitted, rstudent(final.fit),
+     main = "Multi Fit Studentized Residuals",
+     xlab = "Predictions",ylab = "Studentized Resid",
+     ylim = c(-2.5,2.5))
+abline(h = 0, lty = 2)
+plot(form1$DesarrEcon, final.fit$resid,
+     main = "Residuals",
+     xlab = "Dependent variable", ylab = "Residuals")
+abline(h = 0,lty = 2)
+hist(final.fit$resid, main = "Histogram of Residuals")
+qqnorm(final.fit$resid)
+qqline(final.fit$resid)
+
+```
+
+# Modelo Por rubro  
+
+```{r, areas}
+pesca <- form[form$q0006_r == "B - Pesca",]
+nometal <- form[form$q0006_r == "D - Industrias manufactureras no metÃ¡licas",]
+metal <- form[form$q0006_r == "E - Industrias manufactureras metÃ¡licas",]
+comerc <- form[form$q0006_r == "H - Comercio al por mayor y menor, rep. veh.automotores/enseres domÃ©sticos",]
+turismo <- form[form$q0006_r == "I - Hoteles y restaurantes",]
+transp <- form[form$q0006_r == "J - Transporte, almacenamiento y comunicaciones",]
+servic <- form[form$q0006_r == "P - Otras actividades de servicios comunitarias, sociales y personales",]
+
+
+#PESCA
+#lapply(pesca[,!colnames(pesca) %in% c("rowname","q0006_r","final.fit.fitted.values")], table, useNA = "ifany")
+rubro1.fit <- lm(DesarrEcon ~ ., data = pesca[,!colnames(pesca) %in% 
+                                                c("rowname","q0006_r","ClasifTamE","final.fit.fitted.values","tiene_electric","pocotransporte","local","sehacapacita",
+                                                  "masnegocios","porhora","jornacompleta","mediajornada","otrajorn","ipcft","u","pos","vecinos","alguninmig",
+                                                  "algundiscapac","exporta","ventapublico","ventacomerc","ventaweb","ventatelef","ventarrss","TienePC","TieneInternet",
+                                                  "pocaseguridad","TieneInternet","Pagoefectivo","PagoTarjCred","PagoTransf","PagoDebito","tiene_internet","pocascalles",
+                                                  "altotrafico","pocosestacionam","PagoCheque","rentabilidad","tiempoenlugar")])
+#ols_step_both_p(rubro1.fit)
+vars_rubro1 <- c("DesarrEcon","ProgComputacionales","tieneayudamunic","produce","niveldeuda","financiamiento","niveleducac")
+rubro1.fit <- lm(DesarrEcon ~ ., data = pesca[,vars_rubro1])
+summary(rubro1.fit)
+ 
+#no metalica
+#lapply(nometal[,!colnames(nometal) %in% c("rowname","q0006_r","final.fit.fitted.values")], table, useNA = "ifany")
+rubro2.fit <- lm(DesarrEcon ~ ., data = nometal[,!colnames(nometal) %in% c("rowname","q0006_r","final.fit.fitted.values","otrajorn","pos")])
+#ols_step_both_p(rubro2.fit)
+vars_rubro2 <- c("DesarrEcon","ClasifTamE","ventatelef","TienePC","mediajornada","produce","tiene_internet","u","pocaseguridad","ventasalaventa","ch","PagoTarjCred","PagoDebito","tiempoenlugar","alguninmig","OfertaActualizada","altotrafico","ResolSanitaria","efamiliar")
+rubro2.fit <- lm(DesarrEcon ~ ., data = nometal[,vars_rubro2])
+summary(rubro2.fit)
+
+#metalica
+#lapply(metal[,!colnames(metal) %in% c("rowname","q0006_r","final.fit.fitted.values","DesarrEcon")], table, useNA = "ifany")
+rubro3.fit <- lm(DesarrEcon ~ ., data = metal[,!colnames(metal) %in% c("rowname","q0006_r","final.fit.fitted.values","mediajornada","otrajorn","porhora","pos","algundiscapac","ventapublico","tiene_electric")])
+#ols_step_both_p(rubro3.fit)
+vars_rubro3 <- c("DesarrEcon","ClasifTamE","ventatelef","PagoCheque","efamiliar","ProcedimAlmacenaje","OfertaActualizada","ipcft","PagoTransf")
+rubro3.fit <- lm(DesarrEcon ~ ., data = metal[,vars_rubro3])
+summary(rubro3.fit)
+ 
+#comerc
+#lapply(comerc[,!colnames(comerc) %in% c("rowname","q0006_r","final.fit.fitted.values","DesarrEcon")], table, useNA = "ifany")
+rubro4.fit <- lm(DesarrEcon ~ ., data = comerc[,!colnames(comerc) %in% c("rowname","q0006_r","final.fit.fitted.values")])
+#ols_step_both_p(rubro4.fit)
+vars_rubro4 <- c("DesarrEcon","ClasifTamE","TieneInternet","niveldeuda","PagoTarjCred","PagoCheque","TienePublicidad","asocgremial","ProgComputacionales","algundiscapac","tiempoenlugar","u","masnegocios","ventarrss","ventasalaventa","ResolSanitaria","sehacapacita","ch","ContactoClientes","rentabilidad","TienePC","mediajornada","ventalocal","ProcedimAlmacenaje","porhora","alguninmig","jornacompleta","efamiliar","ipcft","ventatelef")
+rubro4.fit <- lm(DesarrEcon ~ ., data = comerc[,vars_rubro4])
+summary(rubro4.fit)
+ 
+#turismo
+#lapply(turismo[,!colnames(turismo) %in% c("rowname","q0006_r","final.fit.fitted.values","DesarrEcon")], table, useNA = "ifany")
+rubro5.fit <- lm(DesarrEcon ~ ., data = turismo[,!colnames(turismo) %in% c("rowname","q0006_r","final.fit.fitted.values","exporta","ResolSanitaria","tiene_electric")])
+#ols_step_both_p(rubro5.fit)
+vars_rubro5 <- c("DesarrEcon","ClasifTamE","TienePC","niveldeuda","PagoTarjCred","niveleducac","Proveedor","ContactoClientes","u","sehacapacita","TienePublicidad","alguninmig","asocgremial","tiene_agua","OfertaActualizada","ControlIncendio","ch","ventarrss")
+rubro5.fit <- lm(DesarrEcon ~ ., data = turismo[,vars_rubro5])
+summary(rubro5.fit)
+
+#transporte
+#lapply(transp[,!colnames(transp) %in% c("rowname","q0006_r","final.fit.fitted.values","DesarrEcon")], table, useNA = "ifany")
+rubro6.fit <- lm(DesarrEcon ~ ., data = transp[,!colnames(transp) %in% c("rowname","q0006_r","final.fit.fitted.values","otrajorn","pos","vecinos","algundiscapac","ControlIncendio","pocotransporte","tieneayudamunic")])
+#ols_step_both_p(rubro6.fit)
+vars_rubro6 <- c("DesarrEcon","ClasifTamE","ventarrss","ResolSanitaria","ventaweb","rentabilidad","PagoTarjCred","ipcft","produce","PagoCheque","sehacapacita","niveldeuda","sexo","edad","ventatelef","efamiliar")
+rubro6.fit <- lm(DesarrEcon ~ ., data = transp[,vars_rubro6])
+summary(rubro6.fit)
+
+#servicios
+#lapply(servic[,!colnames(servic) %in% c("rowname","q0006_r","final.fit.fitted.values","DesarrEcon")], table, useNA = "ifany")
+rubro7.fit <- lm(DesarrEcon ~ ., data = servic[,!colnames(servic) %in% c("rowname","q0006_r","final.fit.fitted.values")])
+#ols_step_both_p(rubro7.fit)
+vars_rubro7 <- c("DesarrEcon","ClasifTamE","TienePC","Pagoefectivo","niveldeuda","ventaweb","alguninmig","PagoCheque","u","exporta","Proveedor","tiempoenlugar","ventasalaventa","efamiliar","mediajornada","TienePublicidad","ventarrss","ventatelef","edad","masnegocios","pocascalles","ControlIncendio","tiene_agua","vecinos","TieneInternet","niveleducac","PagoTransf","ipcft","PlanMantenim","ventalocal")
+rubro7.fit <- lm(DesarrEcon ~ ., data = servic[,vars_rubro7])
+summary(rubro7.fit)
+
+c1 <- data.frame(rubro1.fit$coefficients)
+c1 <- cbind(as.character(rownames(c1)), c1)
+colnames(c1) <- c("names_fac","Pesca")
+
+c2 <- data.frame(rubro2.fit$coefficients)
+c2 <- cbind(as.character(rownames(c2)), c2)
+colnames(c2) <- c("names_fac","Manuf_NoMetal")
+c2 <- c2 %>% mutate(Manuf_NoMetal = ifelse(names_fac == "uMás de la mitad", NA, Manuf_NoMetal),
+                    Manuf_NoMetal = ifelse(names_fac == "chMás de la mitad", NA, Manuf_NoMetal),
+                    Manuf_NoMetal = ifelse(names_fac == "tiempoenlugarMás de 5 años", NA, Manuf_NoMetal),
+                    Manuf_NoMetal = ifelse(names_fac == "alguninmigAl menos uno", NA, Manuf_NoMetal))
+
+c3 <- data.frame(rubro3.fit$coefficients)
+c3 <- cbind(as.character(rownames(c3)), c3)
+colnames(c3) <- c("names_fac","Manuf_Metal")
+c3 <- c3 %>% mutate(Manuf_Metal = ifelse(names_fac == "ventatelefSi", NA, Manuf_Metal),
+                    Manuf_Metal = ifelse(names_fac == "ipcftAlgunos", NA, Manuf_Metal))
+
+c4 <- data.frame(rubro4.fit$coefficients)
+c4 <- cbind(as.character(rownames(c4)), c4)
+colnames(c4) <- c("names_fac","Comercio")
+c4 <- c4 %>% mutate(Comercio = ifelse(names_fac == "niveldeudaAlta ", NA, Comercio),
+                    Comercio = ifelse(names_fac == "ventarrssSi", NA, Comercio),
+                    Comercio = ifelse(names_fac == "chMás de la mitad", NA, Comercio),
+                    Comercio = ifelse(names_fac == "rentabilidadMás 15%", NA, Comercio),
+                    Comercio = ifelse(names_fac == "mediajornadaAlgunos", NA, Comercio),
+                    Comercio = ifelse(names_fac == "porhoraMás de la mitad", NA, Comercio),
+                    Comercio = ifelse(names_fac == "porhoraNinguno", NA, Comercio),
+                    Comercio = ifelse(names_fac == "jornacompletaAlgunos", NA, Comercio),
+                    Comercio = ifelse(names_fac == "ipcftMás de la mitad", NA, Comercio))
+
+c5 <- data.frame(rubro5.fit$coefficients)
+c5 <- cbind(as.character(rownames(c5)), c5)
+colnames(c5) <- c("names_fac","Turismo")
+c5 <- c5 %>% mutate(Turismo = ifelse(names_fac == "niveldeudaAlta ", NA, Turismo),
+                    Turismo = ifelse(names_fac == "niveleducacTécnico Profesional", NA, Turismo),
+                    Turismo = ifelse(names_fac == "uAlgunos", NA, Turismo),
+                    Turismo = ifelse(names_fac == "chMás de la mitad", NA, Turismo))
+                    
+c6 <- data.frame(rubro6.fit$coefficients)
+c6 <- cbind(as.character(rownames(c6)), c6)
+colnames(c6) <- c("names_fac","Transporte")
+c6 <- c6 %>% mutate(Transporte = ifelse(names_fac == "rentabilidadMás 15%", NA, Transporte),
+                    Transporte = ifelse(names_fac == "ventawebSi", NA, Transporte),
+                    Transporte = ifelse(names_fac == "niveldeudaMedia", NA, Transporte),
+                    Transporte = ifelse(names_fac == "edadMenos de 26 años", NA, Transporte))
+
+c7 <- data.frame(rubro7.fit$coefficients)
+c7 <- data.frame(as.character(rownames(c7)), c7)
+colnames(c7) <- c("names_fac","Servicios")
+c7 <- c7 %>% mutate(Servicios = ifelse(names_fac == "niveldeudaAlta", NA, Servicios),
+                    Servicios = ifelse(names_fac == "mediajornadaAlgunos", NA, Servicios),
+                    Servicios = ifelse(names_fac == "niveleducacTécnico Profesional", NA, Servicios),
+                    Servicios = ifelse(names_fac == "ipcftMás de la mitad", NA, Servicios))
+
+c <- full_join(c1,c2,by = "names_fac")
+c <- full_join(c,c3,by = "names_fac")
+c <- full_join(c,c4,by = "names_fac")
+c <- full_join(c,c5,by = "names_fac")
+c <- full_join(c,c6,by = "names_fac")
+c <- full_join(c,c7,by = "names_fac")
+library(reshape2)
+coefic <- melt(c,id.vars = "names_fac")
+#coefic <- coefic[!is.na(coefic$value),]
+
+varsd1 <- c("(Intercept)","ClasifTamEPequeña Empresa","ClasifTamEMediana Empresa","efamiliarSi","exportaSi","produceSi","tiempoenlugarMás de 5 años")
+varsd2 <- c("rentabilidadEntre 11% y 15%","rentabilidadMás 15%","niveldeudaMedia","niveldeudaAlta","financiamientoNo tiene")
+varsd3 <- c("ventatelefSi","ventarrssSi","ventasalaventaSi","ventalocalSi","ventawebSi","PagoTarjCredSi","PagoChequeSi","PagoDebitoSi","PagoefectivoSi","PagoTransfSi")
+varsd4 <- c("OfertaActualizadaSi","ContactoClientesSi","ProveedorFuera de la región","tiene_aguaSi tiene","TienePublicidadSi","ResolSanitariaSi tiene o no necesita","ProcedimAlmacenajeNo tiene","ControlIncendioNo tiene"," PlanMantenimNo tiene","asocgremialSi")
+varsd5 <- c("uMás de la mitad","uAlgunos","ipcftMás de la mitad","ipcftAlgunos","chMás de la mitad","chAlgunos")
+varsd51 <- c("mediajornadaAlgunos","mediajornadaMás de la mitad","porhoraNinguno","porhoraMás de la mitad","jornacompletaMás de la mitad","jornacompletaAlgunos")
+varsd52 <- c("alguninmigAl menos uno","algundiscapacAl menos uno","vecinosMás de la mitad")
+varsd6 <- c("TienePCSi","TieneInternetSi","ProgComputacionalesNo tiene","tiene_internetNo tiene o mala calidad")
+varsd7 <- c("pocaseguridadSi","pocascallesSi","altotraficoSi")
+varsd8 <- c("niveleducacProfesional","niveleducacTécnico Profesional","masnegociosSi","edadMenos de 26 años","edadEntre 26 y 45 años","sexoMujer")
+
+
+ggplot(coefic[coefic$names_fac %in% varsd1,], aes(names_fac, value, color = factor(variable), fill = factor(variable))) +
+  geom_bar( position = "dodge", stat = "identity") + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(legend.position = "bottom", legend.title = element_blank(),
+        legend.text = element_text(size = 7), legend.key.size = unit(0.5, "cm")) +
+  labs(title = "Coeficientes Caracteristicas de la empresa por rubro") +
+  labs(x = "Factores relevantes", y = "Coeficiente estimado") +
+  scale_fill_brewer(palette = "Dark2") +
+  scale_color_brewer(palette = "Dark2") +
+  scale_y_continuous(limits = c(-50,50)) +
+  geom_text(aes(y = (value + 7 * sign(value)),label = round(value,1)),position = position_dodge(width = 0.9), hjust = -0.25,size = 2) + coord_flip() 
+
+ggplot(coefic[coefic$names_fac %in% varsd2,], aes(names_fac, value, color = factor(variable), fill = factor(variable))) +
+  geom_bar( position = "dodge", stat = "identity") + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(legend.position = "bottom", legend.title = element_blank(),
+        legend.text = element_text(size = 7), legend.key.size = unit(0.5, "cm")) +
+  labs(title = "Coeficientes Perfil financiero de la empresa por rubro") +
+  labs(x = "Factores relevantes", y = "Coeficiente estimado") +
+  scale_fill_brewer(palette = "Dark2") +
+  scale_color_brewer(palette = "Dark2") +
+  scale_y_continuous(limits = c(-50,50)) +
+  geom_text(aes(y = (value + 7 * sign(value)),label = round(value,1)),position = position_dodge(width = 0.9), hjust = -0.25,size = 2) + coord_flip() 
+
+ggplot(coefic[coefic$names_fac %in% varsd3,], aes(names_fac, value, color = factor(variable), fill = factor(variable))) +
+  geom_bar( position = "dodge", stat = "identity") + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(legend.position = "bottom", legend.title = element_blank(),
+        legend.text = element_text(size = 7), legend.key.size = unit(0.5, "cm")) +
+  labs(title = "Coeficientes Modalidad de ventas por rubro") +
+  labs(x = "Factores relevantes", y = "Coeficiente estimado") +
+  scale_fill_brewer(palette = "Dark2") +
+  scale_color_brewer(palette = "Dark2") +
+  scale_y_continuous(limits = c(-50,50)) +
+  geom_text(aes(y = (value + 7 * sign(value)),label = round(value,1)),position = position_dodge(width = 0.9), hjust = -0.25,size = 2) + coord_flip() 
+
+ggplot(coefic[coefic$names_fac %in% varsd4,], aes(names_fac, value, color = factor(variable), fill = factor(variable))) +
+  geom_bar( position = "dodge", stat = "identity") + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  #facet_grid(.~variable) +
+  theme(legend.position = "bottom", legend.title = element_blank(),
+        legend.text = element_text(size = 7), legend.key.size = unit(0.5, "cm")) +
+  labs(title = "Coeficientes Recursos de la empresa por rubro") +
+  labs(x = "Factores relevantes", y = "Coeficiente estimado") +
+  scale_fill_brewer(palette = "Dark2") +
+  scale_color_brewer(palette = "Dark2") +
+  scale_y_continuous(limits = c(-50,50)) +
+  geom_text(aes(y = (value + 7 * sign(value)), label = round(value,1)),position = position_dodge(width = 0.9), hjust = -0.25,size = 2) + coord_flip() 
+
+
+ggplot(coefic[coefic$names_fac %in% varsd5,], aes(names_fac, value, color = factor(variable), fill = factor(variable))) +
+  geom_bar( position = "dodge", stat = "identity") + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(legend.position = "bottom", legend.title = element_blank(),
+        legend.text = element_text(size = 7), legend.key.size = unit(0.5, "cm")) +
+  labs(title = "Coeficientes Perfil educacional de los trabajadores por rubro") +
+  labs(x = "Factores relevantes", y = "Coeficiente estimado") +
+  scale_fill_brewer(palette = "Dark2") +
+  scale_color_brewer(palette = "Dark2") +
+  scale_y_continuous(limits = c(-50,50)) +
+  geom_text(aes(y = (value + 7 * sign(value)),label = round(value,1)),position = position_dodge(width = 0.9), hjust = -0.25,size = 2) + coord_flip() 
+
+ggplot(coefic[coefic$names_fac %in% varsd51,], aes(names_fac, value, color = factor(variable), fill = factor(variable))) +
+  geom_bar( position = "dodge", stat = "identity") + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(legend.position = "bottom", legend.title = element_blank(),
+        legend.text = element_text(size = 7), legend.key.size = unit(0.5, "cm")) +
+  labs(title = "Coeficientes Perfil laboral de los trabajadores (1) por rubro") +
+  labs(x = "Factores relevantes", y = "Coeficiente estimado") +
+  scale_fill_brewer(palette = "Dark2") +
+  scale_color_brewer(palette = "Dark2") +
+  scale_y_continuous(limits = c(-50,50)) +
+  geom_text(aes(y = (value + 7 * sign(value)),label = round(value,1)),position = position_dodge(width = 0.9), hjust = -0.25,size = 2) + coord_flip() 
+
+
+ggplot(coefic[coefic$names_fac %in% varsd52,], aes(names_fac, value, color = factor(variable), fill = factor(variable))) +
+  geom_bar( position = "dodge", stat = "identity") + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(legend.position = "bottom", legend.title = element_blank(),
+        legend.text = element_text(size = 7), legend.key.size = unit(0.5, "cm")) +
+  labs(title = "Coeficientes Perfil laboral de los trabajadores (2) por rubro") +
+  labs(x = "Factores relevantes", y = "Coeficiente estimado") +
+  scale_fill_brewer(palette = "Dark2") +
+  scale_color_brewer(palette = "Dark2") +
+  scale_y_continuous(limits = c(-50,50)) +
+  geom_text(aes(y = (value + 7 * sign(value)),label = round(value,1)),position = position_dodge(width = 0.9), hjust = -0.25,size = 2) + coord_flip() 
+
+
+ggplot(coefic[coefic$names_fac %in% varsd6,], aes(names_fac, value, color = factor(variable), fill = factor(variable))) +
+  geom_bar( position = "dodge", stat = "identity") + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(legend.position = "bottom", legend.title = element_blank(),
+        legend.text = element_text(size = 7), legend.key.size = unit(0.5, "cm")) +
+  labs(title = "Coeficientes Uso de la tecnología por rubro") +
+  labs(x = "Factores relevantes", y = "Coeficiente estimado") +
+  scale_fill_brewer(palette = "Dark2") +
+  scale_color_brewer(palette = "Dark2") +
+  scale_y_continuous(limits = c(-50,50)) +
+  geom_text(aes(y = (value + 7 * sign(value)),label = round(value,1)),position = position_dodge(width = 0.9), hjust = -0.25,size = 2) + coord_flip() 
+
+ggplot(coefic[coefic$names_fac %in% varsd7,], aes(names_fac, value, color = factor(variable), fill = factor(variable))) +
+  geom_bar( position = "dodge", stat = "identity") + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(legend.position = "bottom", legend.title = element_blank(),
+        legend.text = element_text(size = 7), legend.key.size = unit(0.5, "cm")) +
+  labs(title = "Coeficientes Falencias en el entorno de la empresa por rubro") +
+  labs(x = "Factores relevantes", y = "Coeficiente estimado") +
+  scale_fill_brewer(palette = "Dark2") +
+  scale_color_brewer(palette = "Dark2") +
+  scale_y_continuous(limits = c(-50,50)) +
+  geom_text(aes(y = (value + 7 * sign(value)),label = round(value,1)),position = position_dodge(width = 0.9), hjust = -0.25,size = 2) + coord_flip() 
+
+ggplot(coefic[coefic$names_fac %in% varsd8,], aes(names_fac, value, color = factor(variable), fill = factor(variable))) +
+  geom_bar( position = "dodge", stat = "identity") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(legend.position = "bottom", legend.title = element_blank(),
+        legend.text = element_text(size = 7), legend.key.size = unit(0.5, "cm")) +
+  labs(title = "Coeficientes Perfil del empresario por rubro") +
+  labs(x = "Factores relevantes", y = "Coeficiente estimado") +
+  scale_fill_brewer(palette = "Dark2") +
+  scale_color_brewer(palette = "Dark2") +
+  scale_y_continuous(limits = c(-50,50)) +
+  geom_text(aes(y = (value + 7 * sign(value)),label = round(value,1)),position = position_dodge(width = 0.9), hjust = -0.25,size = 2) + coord_flip() 
+```
+
+# Modelo por Tipo de empresa  
+
+```{r tipo}
+###########3
+microe <- form[form$ClasifTamE == "Microempresa",]
+pequenae <- form[form$ClasifTamE == "Pequeña Empresa",]
+medianae <- form[form$ClasifTamE == "Mediana Empresa",]
+
+#microe
+#lapply(microe[,!colnames(microe) %in% c("rowname","q0006_r","final.fit.fitted.values","ClasifTamE")], table, useNA = "ifany")
+tipo1.fit <- lm(DesarrEcon ~ ., data = microe[,!colnames(microe) %in% c("rowname","q0006_r","final.fit.fitted.values","ClasifTamE")])
+#ols_step_both_p(tipo1.fit)
+
+vars_tipo1 <- c("DesarrEcon","TienePC","niveldeuda","Pagoefectivo","alguninmig","PagoTarjCred","PagoCheque","u","ventasalaventa","tiempoenlugar","ventaweb","TienePublicidad","ProgComputacionales","ch","masnegocios","ventalocal","exporta","mediajornada","ventatelef","tiene_internet","asocgremial","ventacomerc","vecinos","ipcft","ContactoClientes","rentabilidad","Proveedor","ControlIncendio","financiamiento","ventarrss","sehacapacita","sexo","algundiscapac","edad","pocotransporte")
+
+tipo1.fit <- lm(DesarrEcon ~ ., data = microe[,vars_tipo1])
+summary(tipo1.fit)
+
+
+#pequenae
+#lapply(pequenae[,!colnames(pequenae) %in% c("rowname","q0006_r","final.fit.fitted.values","ClasifTamE")], table, useNA = "ifany")
+tipo2.fit <- lm(DesarrEcon ~ ., data = pequenae[,!colnames(pequenae) %in% c("rowname","q0006_r","final.fit.fitted.values","ClasifTamE","tiene_electric")])
+#ols_step_both_p(tipo2.fit)
+
+vars_tipo2 <- c("DesarrEcon","PagoTransf","sehacapacita","exporta","mediajornada","ipcft","produce","evaluacnegocio","ventapublico","altotrafico","ventasalaventa","sexo","PagoTarjCred","Pagoefectivo","ventacomerc")
+
+tipo2.fit <- lm(DesarrEcon ~ ., data = pequenae[,vars_tipo2])
+summary(tipo2.fit)
+
+
+#medianae
+#lapply(medianae[,!colnames(medianae) %in% c("rowname","q0006_r","final.fit.fitted.values","ClasifTamE")], table, useNA = "ifany")
+tipo3.fit <- lm(DesarrEcon ~ ., data = medianae[,!colnames(medianae) %in% c("rowname","q0006_r","final.fit.fitted.values","ClasifTamE","financiamiento","tieneayudamunic","altotrafico","pocascalles","tiene_internet","tiene_electric", "vecinos","TienePC",
+                                                                           "TieneInternet","ResolSanitaria","ProgComputacionales","PlanMantenim","ProcEmergenc","ControlIncendio","ventapublico","pos")])
+#ols_step_both_p(tipo3.fit)
+
+vars_tipo3 <- c("DesarrEcon","pocotransporte","jornacompleta","ventacomerc","niveleducac","porhora","PagoTransf","anoscomoempresario","OfertaActualizada")
+
+tipo3.fit <- lm(DesarrEcon ~ ., data = medianae[,vars_tipo3])
+summary(tipo3.fit)
+
+
+```
+
